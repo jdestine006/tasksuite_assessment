@@ -175,19 +175,18 @@ def create_fastapi_app() -> FastAPI:
         """
         # --- Implement here ---
         conn = connect_db()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.name FROM pokemon p
-                JOIN trainer_pokemon_abilities tpa ON p.id = tpa.pokemon_id
-                JOIN abilities a ON tpa.ability_id = a.id
-                WHERE a.name = ? COLLATE NOCASE;
-            ''', (ability_name,))
-            results = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            return [row[0] for row in results] if results else []
-        raise HTTPException(status_code=404, detail="Ability not found.")
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection error.")
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                    SELECT p.name FROM pokemon p
+                    JOIN trainer_pokemon_abilities tpa ON p.id = tpa.pokemon_id
+                    JOIN abilities a ON tpa.ability_id = a.id
+                    WHERE a.name = ? COLLATE NOCASE;
+                ''', (ability_name,))
+                results = cursor.fetchall()
+                return [row[0] for row in results] if results else []
 
         # --- End Implementation ---
 
@@ -199,19 +198,18 @@ def create_fastapi_app() -> FastAPI:
         """
         # --- Implement here ---
         conn = connect_db()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.name FROM pokemon p
-                JOIN types t1 ON p.type1_id = t1.id
-                LEFT JOIN types t2 ON p.type2_id = t2.id
-                WHERE t1.name = ? COLLATE NOCASE OR t2.name = ? COLLATE NOCASE;
-            ''', (type_name, type_name))
-            results = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            return [row[0] for row in results] if results else []
-        raise HTTPException(status_code=404, detail="Type not found.")
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection error.")
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                    SELECT p.name FROM pokemon p
+                    JOIN types t1 ON p.type1_id = t1.id
+                    LEFT JOIN types t2 ON p.type2_id = t2.id
+                    WHERE t1.name = ? COLLATE NOCASE OR t2.name = ? COLLATE NOCASE;
+                ''', (type_name, type_name))
+                results = cursor.fetchall()
+                return [row[0] for row in results] if results else []
         # --- End Implementation ---
 
     @app.get("/trainers/pokemon/{pokemon_name}", response_model=List[str])
@@ -222,19 +220,18 @@ def create_fastapi_app() -> FastAPI:
         """
         # --- Implement here ---
         conn = connect_db()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT DISTINCT t.name FROM trainers t
-                JOIN trainer_pokemon_abilities tpa ON t.id = tpa.trainer_id
-                JOIN pokemon p ON tpa.pokemon_id = p.id
-                WHERE p.name = ?;
-            ''', (pokemon_name,))
-            results = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            return [row[0] for row in results] if results else []
-        raise(HTTPException)
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection error.")
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                    SELECT DISTINCT t.name FROM trainers t
+                    JOIN trainer_pokemon_abilities tpa ON t.id = tpa.trainer_id
+                    JOIN pokemon p ON tpa.pokemon_id = p.id
+                    WHERE p.name = ?;
+                ''', (pokemon_name,))
+                results = cursor.fetchall()
+                return [row[0] for row in results] if results else []
         # --- End Implementation ---
 
     @app.get("/abilities/pokemon/{pokemon_name}", response_model=List[str])
@@ -245,97 +242,91 @@ def create_fastapi_app() -> FastAPI:
         """
         # --- Implement here ---
         conn = connect_db()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT ab.name FROM abilities ab
-                JOIN trainer_pokemon_abilities tpa ON ab.id = tpa.ability_id
-                JOIN pokemon p ON tpa.pokemon_id = p.id
-                WHERE p.name = ? COLLATE NOCASE;
-            ''', (pokemon_name,))
-            results = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            return [row[0] for row in results] if results else []
-        raise HTTPException(status_code=404, detail="Pokemon not found.")
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection error.")
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute('''
+                    SELECT ab.name FROM abilities ab
+                    JOIN trainer_pokemon_abilities tpa ON ab.id = tpa.ability_id
+                    JOIN pokemon p ON tpa.pokemon_id = p.id
+                    WHERE p.name = ? COLLATE NOCASE;
+                ''', (pokemon_name,))
+                results = cursor.fetchall()
+                return [row[0] for row in results] if results else []
 
     @app.post("/trainer-pokemon-abilities/{pokemon_name}")
     def add_trainer_pokemon_abilities(pokemon_name: str):
         # Check if the pokemon exists in PokeAPI before inserting
         conn = connect_db()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute('''SELECT id FROM pokemon WHERE name = ?''', (pokemon_name,))
-            existing_pokemon = cursor.fetchone()
-            if existing_pokemon:
-                conn.close()
-                raise HTTPException(status_code=400, detail="Pokémon already exists in the database.")
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection error.")
         try:
-            response = requests.get(f"https://pokeapi.co/api/v2/pokemon/{pokemon_name}")
-            if response.status_code != 200:
-                raise HTTPException(status_code=404, detail="Pokémon not found in PokéAPI.")
-            data = response.json()
+            with conn:
+                with conn.cursor() as cursor:
+                    cursor.execute('''SELECT id FROM pokemon WHERE name = ?''', (pokemon_name,))
+                    existing_pokemon = cursor.fetchone()
+                    if existing_pokemon:
+                        raise HTTPException(status_code=400, detail="Pokémon already exists in the database.")
 
-            abilities = [a["ability"]["name"] for a in data["abilities"]]
-            type1 = data["types"][0]["type"]["name"] if len(data["types"]) > 0 else None
-            type2 = data["types"][1]["type"]["name"] if len(data["types"]) > 1 else None
+                    response = requests.get(f"https://pokeapi.co/api/v2/pokemon/{pokemon_name}")
+                    if response.status_code != 200:
+                        raise HTTPException(status_code=404, detail="Pokémon not found in PokéAPI.")
+                    data = response.json()
 
-            conn = connect_db()
-            if not conn:
-                raise HTTPException(status_code=500, detail="Database connection error.")
-            cursor = conn.cursor()
+                    abilities = [a["ability"]["name"] for a in data["abilities"]]
+                    type1 = data["types"][0]["type"]["name"] if len(data["types"]) > 0 else None
+                    type2 = data["types"][1]["type"]["name"] if len(data["types"]) > 1 else None
+
+                    # Handle Pokemon by Types
+                    def get_or_create_type(type_name):
+                        if not type_name:
+                            return None
+                        cursor.execute('''SELECT id FROM types WHERE name = ?''', (type_name,))
+                        row = cursor.fetchone()
+                        if row:
+                            return row[0]
+                        cursor.execute('''INSERT INTO types (name) VALUES (?)''', (type_name,))
+                        return cursor.lastrowid
+
+                    type1_id = get_or_create_type(type1)
+                    type2_id = get_or_create_type(type2)
+
+                    # Handle Pokémon by Name
+                    cursor.execute('''SELECT id FROM pokemon WHERE name = ?''', (pokemon_name,))
+                    row = cursor.fetchone()
+                    if row:
+                        pokemon_id = row[0]
+                    else:
+                        cursor.execute('''INSERT INTO pokemon (name, type1_id, type2_id) VALUES (?, ?, ?)''', (pokemon_name, type1_id, type2_id))
+                        pokemon_id = cursor.lastrowid
+
+                    # Assigning a random trainer to Pokemon if none are found
+                    cursor.execute('''SELECT id FROM trainers ORDER BY RANDOM() LIMIT 1''')
+                    trainer_row = cursor.fetchone()
+                    if not trainer_row:
+                        raise HTTPException(status_code=400, detail="No trainers available.")
+                    trainer_id = trainer_row[0]
+
+                    # Insert abilities and trainer_pokemon_abilities
+                    inserted_ids = []
+                    for ability in abilities:
+                        cursor.execute('''INSERT OR IGNORE INTO abilities (name) VALUES (?)''', (ability,))
+                        cursor.execute('''SELECT id FROM abilities WHERE name = ?''', (ability,))
+                        ability_id = cursor.fetchone()[0]
+
+                        # Prevent duplicate
+                        cursor.execute('''SELECT id FROM trainer_pokemon_abilities WHERE trainer_id = ? AND pokemon_id = ? AND ability_id = ?''', (trainer_id, pokemon_id, ability_id))
+                        if not cursor.fetchone():
+                            cursor.execute('''INSERT INTO trainer_pokemon_abilities (trainer_id, pokemon_id, ability_id) VALUES (?, ?, ?)''', (trainer_id, pokemon_id, ability_id))
+                            inserted_ids.append(cursor.lastrowid)
+
+                    return {"message": f"Abilities for {pokemon_name} added successfully.", "inserted_ids": inserted_ids}
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"Internal Server Error: {e}")
             raise HTTPException(status_code=500, detail="Internal server error.")
-
-        # Handle Pokemon by Types
-        def get_or_create_type(type_name):
-            if not type_name:
-                return None
-            cursor.execute('''SELECT id FROM types WHERE name = ?''', (type_name,))
-            row = cursor.fetchone()
-            if row:
-                return row[0]
-            cursor.execute('''INSERT INTO types (name) VALUES (?)''', (type_name,))
-            return cursor.lastrowid
-
-        type1_id = get_or_create_type(type1)
-        type2_id = get_or_create_type(type2)
-
-        # Handle Pokémon by Name
-        cursor.execute('''SELECT id FROM pokemon WHERE name = ?''', (pokemon_name,))
-        row = cursor.fetchone()
-        if row:
-            pokemon_id = row[0]
-        else:
-            cursor.execute('''INSERT INTO pokemon (name, type1_id, type2_id) VALUES (?, ?, ?)''', (pokemon_name, type1_id, type2_id))
-            pokemon_id = cursor.lastrowid
-
-        # Assigning a random trainer to Pokemon if none are found
-        cursor.execute('''SELECT id FROM trainers ORDER BY RANDOM() LIMIT 1''')
-        trainer_row = cursor.fetchone()
-        if not trainer_row:
-            conn.close()
-            raise HTTPException(status_code=400, detail="No trainers available.")
-        trainer_id = trainer_row[0]
-
-        # Insert abilities and trainer_pokemon_abilities
-        inserted_ids = []
-        for ability in abilities:
-            cursor.execute('''INSERT OR IGNORE INTO abilities (name) VALUES (?)''', (ability,))
-            cursor.execute('''SELECT id FROM abilities WHERE name = ?''', (ability,))
-            ability_id = cursor.fetchone()[0]
-
-            # Prevent duplicate
-            cursor.execute('''SELECT id FROM trainer_pokemon_abilities WHERE trainer_id = ? AND pokemon_id = ? AND ability_id = ?''', (trainer_id, pokemon_id, ability_id))
-            if not cursor.fetchone():
-                cursor.execute('''INSERT INTO trainer_pokemon_abilities (trainer_id, pokemon_id, ability_id) VALUES (?, ?, ?)''', (trainer_id, pokemon_id, ability_id))
-                inserted_ids.append(cursor.lastrowid)
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return {"message": f"Abilities for {pokemon_name} added successfully.", "inserted_ids": inserted_ids}
     return app
         # --- End Implementation ---
 # --- Main execution / Uvicorn setup (Optional - for candidate to run locally) ---
